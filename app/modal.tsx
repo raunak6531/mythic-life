@@ -12,8 +12,8 @@ export default function ModalScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
           <Ionicons name="book" size={40} color="#ff9933" />
-          <Text style={styles.title}>THE PATH</Text>
-          <Text style={styles.subtitle}>Guide to Prarambh Terms</Text>
+          <Text style={styles.title}>LILA</Text>
+          <Text style={styles.subtitle}>The Rules of the Game</Text>
         </View>
 
         {/* SECTION 1: THE CURRENCIES */}

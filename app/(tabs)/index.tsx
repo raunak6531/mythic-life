@@ -23,31 +23,29 @@ const STORAGE_KEY_PUNA = '@mythic_puna';
 const STORAGE_KEY_TASKS = '@mythic_tasks';
 
 const CATEGORIES: { id: TaskType; label: string; color: string; icon: string; desc: string }[] = [
-  { id: 'kriya', label: 'KRIYA', color: '#ff9933', icon: 'fire', desc: 'Action & Duty' },
-  { id: 'gyana', label: 'GYANA', color: '#4facfe', icon: 'water', desc: 'Wisdom & Study' },
-  { id: 'ojas', label: 'OJAS', color: '#00f260', icon: 'leaf', desc: 'Health & Vitality' },
+  { id: 'kriya', label: 'KRIYA', color: '#ff9933', icon: 'fire', desc: 'Action & Duty' },   // Orange/Saffron
+  { id: 'gyana', label: 'GYANA', color: '#4facfe', icon: 'water', desc: 'Wisdom & Study' }, // Blue/Cyan
+  { id: 'ojas', label: 'OJAS', color: '#00f260', icon: 'leaf', desc: 'Health & Vitality' }, // Green/Nature
 ];
 
 export default function HomeScreen() {
-  // Game State
+  // --- GAME STATE ---
   const [karma, setKarma] = useState(0);
   const [level, setLevel] = useState(1);
   const [puna, setPuna] = useState(0);
   const [tasks, setTasks] = useState<Task[]>([]);
   
-  // Inputs
+  // --- INPUTS ---
   const [newTask, setNewTask] = useState('');
   const [selectedType, setSelectedType] = useState<TaskType>('kriya');
   const [isLoading, setIsLoading] = useState(true);
 
-  // Level Up Modal State
+  // --- ANIMATION STATE ---
   const [showLevelUp, setShowLevelUp] = useState(false);
   const scaleAnim = useRef(new Animated.Value(0)).current; // Pop-up animation
+  const fadeAnim = useRef(new Animated.Value(0)).current;  // List load animation
 
-  // Animations
-  const fadeAnim = useRef(new Animated.Value(0)).current; 
-
-  // --- INITIAL LOAD ---
+  // --- INITIAL LOAD (The "Akashic Record") ---
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -63,7 +61,7 @@ export default function HomeScreen() {
         if (storedPuna) setPuna(JSON.parse(storedPuna));
         if (storedTasks) setTasks(JSON.parse(storedTasks));
       } catch (e) {
-        console.error("Failed to load records", e);
+        console.error("Failed to load records from Akash", e);
       } finally {
         setIsLoading(false);
         Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }).start();
@@ -72,7 +70,7 @@ export default function HomeScreen() {
     loadData();
   }, []);
 
-  // --- SAVE DATA ---
+  // --- SAVE DATA SIDE EFFECT ---
   useEffect(() => {
     if (isLoading) return;
     const saveData = async () => {
@@ -86,7 +84,7 @@ export default function HomeScreen() {
     saveData();
   }, [karma, level, puna, tasks]);
 
-  // --- LOGIC ---
+  // --- GAME LOGIC ---
   const addTask = () => {
     if (newTask.trim().length === 0) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -94,7 +92,7 @@ export default function HomeScreen() {
     const task: Task = {
       id: Date.now().toString(),
       title: newTask,
-      xp: 10 + Math.floor(Math.random() * 10),
+      xp: 10 + Math.floor(Math.random() * 10), // Random XP 10-20
       type: selectedType
     };
 
@@ -108,17 +106,18 @@ export default function HomeScreen() {
     const newKarma = karma + xp;
     setPuna(puna + (xp / 2));
 
-    const threshold = 100 * level;
+    const threshold = 100 * level; // XP needed for next level
 
     if (newKarma >= threshold) { 
       // LEVEL UP MOMENT
       setLevel(level + 1);
-      setKarma(newKarma - threshold);
+      setKarma(newKarma - threshold); // Carry over extra XP
       triggerLevelUpEffect();
     } else {
       setKarma(newKarma);
     }
     
+    // Remove task
     setTasks(tasks.filter(t => t.id !== id));
   };
 
@@ -151,15 +150,19 @@ export default function HomeScreen() {
           style={[styles.taskCard, { borderLeftColor: categoryColor }]}
         >
           <TouchableOpacity style={styles.taskContent} onPress={() => completeTask(item.id, item.xp)}>
+            {/* Custom Checkbox */}
             <View style={[styles.checkboxContainer, { borderColor: categoryColor }]}>
                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: categoryColor, opacity: 0.5 }} />
             </View>
+            
             <View style={{ flex: 1 }}>
               <Text style={styles.taskTitle}>{item.title}</Text>
               <Text style={[styles.taskSub, { color: categoryColor }]}>
                 {item.type.toUpperCase()} • +{item.xp} XP
               </Text>
             </View>
+
+            {/* Icon Badge */}
             <View style={[styles.iconBadge, { backgroundColor: categoryColor + '20' }]}>
                <MaterialCommunityIcons 
                  name={CATEGORIES.find(c => c.id === item.type)?.icon as any} 
@@ -176,6 +179,8 @@ export default function HomeScreen() {
   return (
     <View style={styles.mainContainer}>
       <StatusBar barStyle="light-content" />
+      
+      {/* BACKGROUND GRADIENT - The Void/Akash */}
       <LinearGradient colors={['#0f0c29', '#302b63', '#24243e']} style={StyleSheet.absoluteFillObject} />
 
       <SafeAreaView style={styles.safeArea}>
@@ -183,12 +188,16 @@ export default function HomeScreen() {
         {/* HEADER */}
         <View style={styles.header}>
           <View>
-             <Text style={styles.appName}>PRARAMBH</Text>
+             <Text style={styles.appName}>LILA</Text>
+             <Text style={styles.appSubtitle}>THE DIVINE PLAY</Text>
           </View>
+          
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
             <View style={styles.levelBadge}>
                 <Text style={styles.levelText}>LVL {level}</Text>
             </View>
+            
+            {/* INFO BUTTON -> Goes to Modal */}
             <Link href="/modal" asChild>
                 <TouchableOpacity>
                     <Ionicons name="information-circle-outline" size={28} color="rgba(255,255,255,0.6)" />
@@ -197,7 +206,7 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* HERO STATS */}
+        {/* HERO CARD - THE SOUL STATS */}
         <LinearGradient
           colors={['#ff9966', '#ff5e62']}
           start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
@@ -213,41 +222,56 @@ export default function HomeScreen() {
               <Text style={styles.statNumber}>{Math.floor(puna)}</Text>
             </View>
           </View>
+          
+          {/* Progress Bar */}
           <View style={styles.progressBg}>
             <View style={[styles.progressFill, { width: `${(karma / (100 * level)) * 100}%` }]} />
           </View>
         </LinearGradient>
 
-        {/* TASK LIST */}
+        {/* LIST */}
         <FlatList 
           data={tasks}
           keyExtractor={item => item.id}
           renderItem={renderItem}
-          contentContainerStyle={{ paddingBottom: 160 }} 
+          contentContainerStyle={{ paddingBottom: 180 }} // Extra space for input area
           showsVerticalScrollIndicator={false}
-          ListHeaderComponent={<Text style={styles.sectionTitle}>YOUR DHARMA</Text>}
+          ListHeaderComponent={
+            <Text style={styles.sectionTitle}>YOUR DHARMA</Text>
+          }
         />
 
-        {/* INPUT AREA */}
+        {/* INPUT AREA (Fixed Bottom) */}
         <KeyboardAvoidingView 
           behavior={Platform.OS === "ios" ? "padding" : "height"} 
           keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 0}
           style={styles.inputWrapper}
         >
+          {/* Category Selector Chips */}
           <View style={styles.chipContainer}>
             {CATEGORIES.map((cat) => (
               <TouchableOpacity 
                 key={cat.id} 
-                onPress={() => { Haptics.selectionAsync(); setSelectedType(cat.id); }}
-                style={[styles.chip, selectedType === cat.id && { backgroundColor: cat.color, borderColor: cat.color }]}
+                onPress={() => {
+                   Haptics.selectionAsync();
+                   setSelectedType(cat.id);
+                }}
+                style={[
+                  styles.chip, 
+                  selectedType === cat.id && { backgroundColor: cat.color, borderColor: cat.color }
+                ]}
               >
-                <Text style={[styles.chipText, selectedType === cat.id ? { color: '#000', fontWeight: 'bold' } : { color: cat.color }]}>
+                <Text style={[
+                  styles.chipText, 
+                  selectedType === cat.id ? { color: '#000', fontWeight: 'bold' } : { color: cat.color }
+                ]}>
                   {cat.label}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
 
+          {/* Text Input */}
           <View style={[styles.inputContainer, { borderColor: getCategoryColor(selectedType) }]}>
             <TextInput 
               style={styles.input} 
@@ -295,11 +319,22 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   mainContainer: { flex: 1 },
   safeArea: { flex: 1, paddingTop: Platform.OS === 'android' ? 40 : 0, paddingHorizontal: 20 },
+  
+  // Header
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, marginTop: 10 },
-  appName: { fontSize: 28, fontWeight: '800', color: '#fff', letterSpacing: 2 },
+  appName: { 
+    fontSize: 36, 
+    fontWeight: '900', 
+    color: '#fff', 
+    letterSpacing: 4, 
+    fontFamily: Platform.OS === 'ios' ? 'Avenir Next' : 'sans-serif-medium' 
+  },
+  appSubtitle: { color: '#666', fontSize: 10, letterSpacing: 3, fontWeight: 'bold', marginTop: 2 },
+  
   levelBadge: { backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)' },
   levelText: { color: '#ffde59', fontWeight: 'bold', fontSize: 12 },
   
+  // Hero Card
   heroCard: { padding: 20, borderRadius: 24, marginBottom: 20, shadowColor: '#ff5e62', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 10 },
   statRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
   statLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '600', marginBottom: 4 },
