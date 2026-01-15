@@ -3,10 +3,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useState } from 'react';
-import { Dimensions, FlatList, KeyboardAvoidingView, Platform, SafeAreaView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Dimensions, FlatList, KeyboardAvoidingView, Modal, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Animated, {
   Extrapolation,
   FadeInDown,
+  FadeOut,
   interpolate,
   Layout,
   SlideInDown,
@@ -41,16 +42,43 @@ type PresetQuest = {
   title: string;
   xp: number;
   diff: Difficulty;
-  cooldownMin: number; // Minutes between completions
-  dailyCap: number;    // Max per day
+  cooldownMin: number;
+  dailyCap: number;
 };
 
 type QuestLog = {
   [questId: string]: {
-    lastCompleted: number; // timestamp
+    lastCompleted: number;
     countToday: number;
-    lastDate: string; // "YYYY-MM-DD"
+    lastDate: string;
   }
+};
+
+type Achievement = {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  color: string;
+  requirement: {
+    type: 'tasks_completed' | 'streak_days' | 'level_reached' | 'karma_earned' | 'path_tasks';
+    value: number;
+    path?: TaskType;
+  };
+  unlocked: boolean;
+  unlockedAt?: number;
+};
+
+type Boss = {
+  id: string;
+  name: string;
+  description: string;
+  maxHp: number;
+  currentHp: number;
+  damagePerTask: number;
+  lootPunya: number;
+  weekStart: string;
+  defeated: boolean;
 };
 
 const STORAGE_KEYS = {
@@ -60,7 +88,10 @@ const STORAGE_KEYS = {
   TASKS: '@mythic_tasks',
   STREAK: '@mythic_streak',
   LAST_DATE: '@mythic_last_date',
-  QUEST_LOG: '@mythic_quest_log'
+  QUEST_LOG: '@mythic_quest_log',
+  ACHIEVEMENTS: '@mythic_achievements',
+  BOSS: '@mythic_boss',
+  TOTAL_TASKS: '@mythic_total_tasks'
 };
 
 const CATEGORIES = [
@@ -90,9 +121,30 @@ const QUEST_DB: Record<TaskType, PresetQuest[]> = {
   ]
 };
 
+const INITIAL_ACHIEVEMENTS: Achievement[] = [
+  { id: 'first_steps', title: 'First Steps', description: 'Complete your first task', icon: 'foot-print', color: '#4facfe', requirement: { type: 'tasks_completed', value: 1 }, unlocked: false },
+  { id: 'dedicated', title: 'Dedicated', description: 'Maintain a 7-day streak', icon: 'calendar-check', color: '#ff9933', requirement: { type: 'streak_days', value: 7 }, unlocked: false },
+  { id: 'ascetic', title: 'Ascetic', description: 'Maintain a 30-day streak', icon: 'meditation', color: '#ff5e62', requirement: { type: 'streak_days', value: 30 }, unlocked: false },
+  { id: 'enlightened', title: 'Enlightened', description: 'Reach Level 10', icon: 'star-circle', color: '#ffde59', requirement: { type: 'level_reached', value: 10 }, unlocked: false },
+  { id: 'karma_collector', title: 'Karma Collector', description: 'Earn 1000 Karma', icon: 'infinity', color: '#00f260', requirement: { type: 'karma_earned', value: 1000 }, unlocked: false },
+  { id: 'kriya_master', title: 'Kriya Master', description: 'Complete 50 Kriya tasks', icon: 'fire', color: '#ff9933', requirement: { type: 'path_tasks', value: 50, path: 'kriya' }, unlocked: false },
+  { id: 'gyana_seeker', title: 'Gyana Seeker', description: 'Complete 50 Gyana tasks', icon: 'water', color: '#4facfe', requirement: { type: 'path_tasks', value: 50, path: 'gyana' }, unlocked: false },
+  { id: 'ojas_champion', title: 'Ojas Champion', description: 'Complete 50 Ojas tasks', icon: 'leaf', color: '#00f260', requirement: { type: 'path_tasks', value: 50, path: 'ojas' }, unlocked: false },
+  { id: 'century', title: 'Century', description: 'Complete 100 total tasks', icon: 'trophy', color: '#d4af37', requirement: { type: 'tasks_completed', value: 100 }, unlocked: false },
+  { id: 'balanced_soul', title: 'Balanced Soul', description: 'Complete 10 tasks in each path', icon: 'yin-yang', color: '#fff', requirement: { type: 'tasks_completed', value: 30 }, unlocked: false }
+];
+
+const BOSS_ROSTER = [
+  { id: 'kama', name: 'Kama', description: 'Demon of Desire', maxHp: 500, damagePerTask: 15, lootPunya: 200 },
+  { id: 'krodha', name: 'Krodha', description: 'Demon of Anger', maxHp: 600, damagePerTask: 12, lootPunya: 250 },
+  { id: 'lobha', name: 'Lobha', description: 'Demon of Greed', maxHp: 700, damagePerTask: 10, lootPunya: 300 },
+  { id: 'moha', name: 'Moha', description: 'Demon of Delusion', maxHp: 800, damagePerTask: 9, lootPunya: 350 },
+  { id: 'mada', name: 'Mada', description: 'Demon of Pride', maxHp: 900, damagePerTask: 8, lootPunya: 400 },
+  { id: 'matsarya', name: 'Matsarya', description: 'Demon of Envy', maxHp: 1000, damagePerTask: 7, lootPunya: 500 }
+];
+
 // --- VISUAL COMPONENTS ---
 
-// 1. AKASH (Breathing Background)
 const AkashBackground = () => {
   const breatheInfo = useSharedValue(0);
 
@@ -127,7 +179,6 @@ const AkashBackground = () => {
   );
 };
 
-// 2. STARFIELD (Particle System)
 const Star = ({ index }: { index: number }) => {
   const x = Math.random() * width;
   const y = Math.random() * height;
@@ -172,12 +223,21 @@ export default function HomeScreen() {
   const [lastDate, setLastDate] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [questLog, setQuestLog] = useState<QuestLog>({});
+  const [totalTasks, setTotalTasks] = useState(0);
+  const [pathCounts, setPathCounts] = useState({ kriya: 0, gyana: 0, ojas: 0 });
+
+  // New Features
+  const [achievements, setAchievements] = useState<Achievement[]>(INITIAL_ACHIEVEMENTS);
+  const [boss, setBoss] = useState<Boss | null>(null);
+  const [newAchievement, setNewAchievement] = useState<Achievement | null>(null);
 
   // UI State
   const [inputVal, setInputVal] = useState('');
   const [selectedType, setSelectedType] = useState<TaskType>('kriya');
   const [showWisdom, setShowWisdom] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
+  const [showAchievements, setShowAchievements] = useState(false);
+  const [showBoss, setShowBoss] = useState(false);
 
   // COMPUTED LEVEL
   const level = Math.floor(Math.sqrt(karma / 100)) + 1;
@@ -198,14 +258,18 @@ export default function HomeScreen() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [u, k, p, t, s, d, ql] = await Promise.all([
+        const [u, k, p, t, s, d, ql, a, b, tt, pc] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEYS.USER),
           AsyncStorage.getItem(STORAGE_KEYS.KARMA),
           AsyncStorage.getItem(STORAGE_KEYS.PUNA),
           AsyncStorage.getItem(STORAGE_KEYS.TASKS),
           AsyncStorage.getItem(STORAGE_KEYS.STREAK),
           AsyncStorage.getItem(STORAGE_KEYS.LAST_DATE),
-          AsyncStorage.getItem(STORAGE_KEYS.QUEST_LOG)
+          AsyncStorage.getItem(STORAGE_KEYS.QUEST_LOG),
+          AsyncStorage.getItem(STORAGE_KEYS.ACHIEVEMENTS),
+          AsyncStorage.getItem(STORAGE_KEYS.BOSS),
+          AsyncStorage.getItem(STORAGE_KEYS.TOTAL_TASKS),
+          AsyncStorage.getItem('@mythic_path_counts')
         ]);
         if (u) setUsername(u);
         if (k) setKarma(JSON.parse(k));
@@ -214,6 +278,10 @@ export default function HomeScreen() {
         if (s) setStreak(JSON.parse(s));
         if (d) setLastDate(d);
         if (ql) setQuestLog(JSON.parse(ql));
+        if (a) setAchievements(JSON.parse(a));
+        if (b) setBoss(JSON.parse(b));
+        if (tt) setTotalTasks(JSON.parse(tt));
+        if (pc) setPathCounts(JSON.parse(pc));
       } catch (e) { }
     };
     load();
@@ -228,10 +296,36 @@ export default function HomeScreen() {
       await AsyncStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
       await AsyncStorage.setItem(STORAGE_KEYS.STREAK, JSON.stringify(streak));
       await AsyncStorage.setItem(STORAGE_KEYS.QUEST_LOG, JSON.stringify(questLog));
+      await AsyncStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(achievements));
+      await AsyncStorage.setItem(STORAGE_KEYS.TOTAL_TASKS, JSON.stringify(totalTasks));
+      await AsyncStorage.setItem('@mythic_path_counts', JSON.stringify(pathCounts));
+      if (boss) await AsyncStorage.setItem(STORAGE_KEYS.BOSS, JSON.stringify(boss));
       if (lastDate) await AsyncStorage.setItem(STORAGE_KEYS.LAST_DATE, lastDate);
     };
     save();
-  }, [karma, puna, tasks, streak, lastDate, questLog]);
+  }, [karma, puna, tasks, streak, lastDate, questLog, achievements, boss, totalTasks, pathCounts]);
+
+  // BOSS MANAGEMENT
+  useEffect(() => {
+    const initBoss = () => {
+      const today = new Date();
+      const monday = new Date(today);
+      monday.setDate(today.getDate() - today.getDay() + 1);
+      const weekStart = monday.toISOString().split('T')[0];
+
+      if (!boss || boss.weekStart !== weekStart) {
+        const weekNum = Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000));
+        const bossTemplate = BOSS_ROSTER[weekNum % BOSS_ROSTER.length];
+        setBoss({
+          ...bossTemplate,
+          currentHp: bossTemplate.maxHp,
+          weekStart,
+          defeated: false
+        });
+      }
+    };
+    if (username) initBoss();
+  }, [username]);
 
   // LOGIC
   const handleLogin = async () => {
@@ -257,6 +351,49 @@ export default function HomeScreen() {
     setLastDate(today);
   };
 
+  const checkAchievements = (newTotalTasks: number, newPathCounts: any, newKarma: number, newLevel: number, newStreak: number) => {
+    const toCheck = [...achievements];
+    let unlocked = false;
+
+    toCheck.forEach(ach => {
+      if (ach.unlocked) return;
+
+      let shouldUnlock = false;
+      switch (ach.requirement.type) {
+        case 'tasks_completed':
+          shouldUnlock = newTotalTasks >= ach.requirement.value;
+          break;
+        case 'streak_days':
+          shouldUnlock = newStreak >= ach.requirement.value;
+          break;
+        case 'level_reached':
+          shouldUnlock = newLevel >= ach.requirement.value;
+          break;
+        case 'karma_earned':
+          shouldUnlock = newKarma >= ach.requirement.value;
+          break;
+        case 'path_tasks':
+          if (ach.requirement.path) {
+            shouldUnlock = newPathCounts[ach.requirement.path] >= ach.requirement.value;
+          }
+          break;
+      }
+
+      if (shouldUnlock) {
+        ach.unlocked = true;
+        ach.unlockedAt = Date.now();
+        setNewAchievement(ach);
+        unlocked = true;
+        setTimeout(() => setNewAchievement(null), 3000);
+      }
+    });
+
+    if (unlocked) {
+      setAchievements([...toCheck]);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  };
+
   const addCustomTask = () => {
     if (!inputVal.trim()) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -271,18 +408,11 @@ export default function HomeScreen() {
     const log = questLog[quest.id];
 
     if (!log) return { allowed: true };
-
-    // Reset daily count if new day
-    if (log.lastDate !== today) {
-      return { allowed: true };
-    }
-
-    // Check daily cap
+    if (log.lastDate !== today) return { allowed: true };
     if (log.countToday >= quest.dailyCap) {
       return { allowed: false, reason: `Daily limit (${quest.dailyCap}) reached` };
     }
 
-    // Check cooldown
     const timeSinceLastMs = now - log.lastCompleted;
     const cooldownMs = quest.cooldownMin * 60 * 1000;
 
@@ -307,7 +437,6 @@ export default function HomeScreen() {
     const t: Task = { id: Date.now().toString(), title: quest.title, xp: quest.xp, type: selectedType, difficulty: quest.diff, isPreset: true };
     setTasks([t, ...tasks]);
 
-    // Update quest log
     const today = new Date().toISOString().split('T')[0];
     const now = Date.now();
     const currentLog = questLog[quest.id];
@@ -324,21 +453,43 @@ export default function HomeScreen() {
     setShowLibrary(false);
   };
 
-  const completeTask = (id: string, xp: number) => {
+  const completeTask = (task: Task) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
 
-    const newKarma = karma + xp;
+    const newKarma = karma + task.xp;
     const oldLevel = Math.floor(Math.sqrt(karma / 100)) + 1;
     const newLevel = Math.floor(Math.sqrt(newKarma / 100)) + 1;
 
     if (newLevel > oldLevel) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
+
     setKarma(newKarma);
-    setPuna(p => p + (xp / 10));
+    setPuna(p => p + (task.xp / 10));
+
+    const newTotalTasks = totalTasks + 1;
+    setTotalTasks(newTotalTasks);
+
+    const newPathCounts = { ...pathCounts };
+    newPathCounts[task.type]++;
+    setPathCounts(newPathCounts);
 
     updateStreak();
-    setTasks(prev => prev.filter(t => t.id !== id));
+
+    // Boss damage
+    if (boss && !boss.defeated && task.xp > 0) {
+      const newHp = Math.max(0, boss.currentHp - boss.damagePerTask);
+      if (newHp === 0 && !boss.defeated) {
+        setBoss({ ...boss, currentHp: 0, defeated: true });
+        setPuna(p => p + boss.lootPunya);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else {
+        setBoss({ ...boss, currentHp: newHp });
+      }
+    }
+
+    checkAchievements(newTotalTasks, newPathCounts, newKarma, newLevel, streak);
+    setTasks(prev => prev.filter(t => t.id !== task.id));
   };
 
   const getCatColor = (t: TaskType) => CATEGORIES.find(c => c.id === t)?.color || '#fff';
@@ -391,16 +542,34 @@ export default function HomeScreen() {
                   <Text style={styles.divineSub}>PRANAM, {username.toUpperCase()}</Text>
                 </View>
 
-                <View style={{ flexDirection: 'row', gap: 10 }}>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity onPress={() => setShowAchievements(true)} style={styles.iconBtn}>
+                    <MaterialCommunityIcons name="trophy" size={20} color="#d4af37" />
+                  </TouchableOpacity>
                   <View style={styles.streakBadge}>
-                    <MaterialCommunityIcons name="fire" size={20} color="#ff5e62" />
+                    <MaterialCommunityIcons name="fire" size={18} color="#ff5e62" />
                     <Text style={styles.streakText}>{streak}</Text>
                   </View>
                   <TouchableOpacity onPress={() => setShowWisdom(true)} style={styles.wisdomIcon}>
-                    <MaterialCommunityIcons name="script-text-outline" size={24} color="#ffde59" />
+                    <MaterialCommunityIcons name="script-text-outline" size={20} color="#ffde59" />
                   </TouchableOpacity>
                 </View>
               </View>
+
+              {/* BOSS CARD */}
+              {boss && !boss.defeated && (
+                <TouchableOpacity onPress={() => setShowBoss(true)} style={styles.bossCard}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.bossName}>{boss.name}</Text>
+                    <Text style={styles.bossDesc}>{boss.description}</Text>
+                    <View style={styles.bossHpBar}>
+                      <View style={[styles.bossHpFill, { width: `${(boss.currentHp / boss.maxHp) * 100}%` }]} />
+                    </View>
+                    <Text style={styles.bossHpText}>{boss.currentHp} / {boss.maxHp} HP</Text>
+                  </View>
+                  <MaterialCommunityIcons name="skull" size={40} color="#ff5e62" />
+                </TouchableOpacity>
+              )}
 
               <View style={styles.heroCard}>
                 <View style={styles.statRow}>
@@ -425,7 +594,7 @@ export default function HomeScreen() {
             const color = getCatColor(item.type);
             return (
               <Animated.View entering={SlideInDown.delay(index * 100).springify()} layout={Layout.springify()} style={[styles.taskCard, { borderLeftColor: color }]}>
-                <TouchableOpacity style={styles.taskContent} onPress={() => completeTask(item.id, item.xp)}>
+                <TouchableOpacity style={styles.taskContent} onPress={() => completeTask(item)}>
                   <View style={[styles.checkbox, { borderColor: color }]}>
                     {item.xp > 0 && <View style={{ backgroundColor: color, width: 6, height: 6, borderRadius: 3 }} />}
                   </View>
@@ -478,7 +647,20 @@ export default function HomeScreen() {
           </View>
         </KeyboardAvoidingView>
 
-        {/* WISDOM OVERLAY */}
+        {/* ACHIEVEMENT NOTIFICATION */}
+        {newAchievement && (
+          <Animated.View entering={SlideInDown.springify()} exiting={FadeOut} style={styles.achievementNotif}>
+            <LinearGradient colors={['rgba(212,175,55,0.3)', 'rgba(212,175,55,0.1)']} style={styles.achievementNotifBg}>
+              <MaterialCommunityIcons name={newAchievement.icon as any} size={32} color={newAchievement.color} />
+              <View style={{ flex: 1, marginLeft: 15 }}>
+                <Text style={styles.achievementNotifTitle}>Achievement Unlocked!</Text>
+                <Text style={styles.achievementNotifDesc}>{newAchievement.title}</Text>
+              </View>
+            </LinearGradient>
+          </Animated.View>
+        )}
+
+        {/* MODALS */}
         {showWisdom && (
           <View style={[StyleSheet.absoluteFill, { justifyContent: 'center', alignItems: 'center', zIndex: 100 }]}>
             <TouchableOpacity activeOpacity={1} onPress={() => setShowWisdom(false)} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.8)' }]} />
@@ -498,7 +680,6 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* LIBRARY SHEET */}
         {showLibrary && (
           <View style={[StyleSheet.absoluteFill, { zIndex: 100, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }]}>
             <TouchableOpacity style={{ flex: 1 }} onPress={() => setShowLibrary(false)} />
@@ -549,6 +730,65 @@ export default function HomeScreen() {
             </Animated.View>
           </View>
         )}
+
+        {/* ACHIEVEMENTS MODAL */}
+        <Modal visible={showAchievements} transparent animationType="fade">
+          <View style={styles.modalBg}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>SIDDHIS</Text>
+                <TouchableOpacity onPress={() => setShowAchievements(false)}>
+                  <Ionicons name="close" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView>
+                {achievements.map(ach => (
+                  <View key={ach.id} style={[styles.achievementItem, ach.unlocked && { opacity: 1 }]}>
+                    <MaterialCommunityIcons name={ach.icon as any} size={32} color={ach.unlocked ? ach.color : '#444'} />
+                    <View style={{ flex: 1, marginLeft: 15 }}>
+                      <Text style={[styles.achievementTitle, ach.unlocked && { color: ach.color }]}>{ach.title}</Text>
+                      <Text style={styles.achievementDesc}>{ach.description}</Text>
+                    </View>
+                    {ach.unlocked && <Ionicons name="checkmark-circle" size={24} color={ach.color} />}
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+
+        {/* BOSS MODAL */}
+        <Modal visible={showBoss} transparent animationType="fade">
+          <View style={styles.modalBg}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>ASURA ENCOUNTER</Text>
+                <TouchableOpacity onPress={() => setShowBoss(false)}>
+                  <Ionicons name="close" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
+              {boss && (
+                <View style={{ alignItems: 'center', padding: 20 }}>
+                  <MaterialCommunityIcons name="skull" size={80} color="#ff5e62" />
+                  <Text style={styles.bossModalName}>{boss.name}</Text>
+                  <Text style={styles.bossModalDesc}>{boss.description}</Text>
+                  <View style={styles.bossModalHpBar}>
+                    <View style={[styles.bossModalHpFill, { width: `${(boss.currentHp / boss.maxHp) * 100}%` }]} />
+                  </View>
+                  <Text style={styles.bossModalHpText}>{boss.currentHp} / {boss.maxHp} HP</Text>
+                  <Text style={styles.bossModalInfo}>Complete tasks to deal {boss.damagePerTask} damage each</Text>
+                  {boss.defeated && (
+                    <View style={styles.bossDefeated}>
+                      <Text style={styles.bossDefeatedText}>DEFEATED!</Text>
+                      <Text style={styles.bossLootText}>+{boss.lootPunya} Punya Earned</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </View>
   );
@@ -566,23 +806,34 @@ const styles = StyleSheet.create({
   enterBtn: { marginTop: 20, paddingHorizontal: 40, paddingVertical: 15, backgroundColor: '#fff', borderRadius: 30 },
   enterText: { color: '#000', fontWeight: 'bold', letterSpacing: 2 },
 
-  // HEADER & HERO
+  // HEADER
   headerContainer: { marginBottom: 20 },
-  headerTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20, alignItems: 'flex-start' },
+  headerTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15, alignItems: 'flex-start' },
   divineTitle: { fontSize: 42, color: '#fff', letterSpacing: 8, fontWeight: '600', fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif' },
   divineSub: { fontSize: 10, color: 'rgba(255,255,255,0.5)', letterSpacing: 3, marginTop: 5, fontWeight: 'bold' },
-  wisdomIcon: { padding: 10, backgroundColor: 'rgba(255,222,89,0.1)', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,222,89,0.3)' },
-  streakBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 8, paddingHorizontal: 12, backgroundColor: 'rgba(255, 94, 98, 0.1)', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255, 94, 98, 0.2)' },
-  streakText: { color: '#ff5e62', fontWeight: 'bold', fontSize: 12 },
+  wisdomIcon: { padding: 8, backgroundColor: 'rgba(255,222,89,0.1)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,222,89,0.3)' },
+  iconBtn: { padding: 8, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', flexDirection: 'row', alignItems: 'center', gap: 4 },
+  punaText: { color: '#ff9933', fontSize: 10, fontWeight: 'bold' },
+  streakBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: 'rgba(255, 94, 98, 0.1)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255, 94, 98, 0.2)' },
+  streakText: { color: '#ff5e62', fontWeight: 'bold', fontSize: 11 },
 
-  heroCard: { backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 24, padding: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', marginBottom: 30 },
+  // BOSS CARD
+  bossCard: { flexDirection: 'row', backgroundColor: 'rgba(255,94,98,0.1)', borderRadius: 16, padding: 15, marginBottom: 15, borderWidth: 1, borderColor: 'rgba(255,94,98,0.3)' },
+  bossName: { color: '#ff5e62', fontSize: 16, fontWeight: 'bold', letterSpacing: 1 },
+  bossDesc: { color: '#aaa', fontSize: 11, marginTop: 2 },
+  bossHpBar: { height: 6, backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 3, marginTop: 8 },
+  bossHpFill: { height: '100%', backgroundColor: '#ff5e62', borderRadius: 3 },
+  bossHpText: { color: '#888', fontSize: 10, marginTop: 4 },
+
+  // HERO CARD
+  heroCard: { backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 24, padding: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', marginBottom: 20 },
   statRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
   statLabel: { color: 'rgba(255,255,255,0.4)', fontSize: 11, letterSpacing: 2, fontWeight: '700', marginBottom: 5 },
   statVal: { color: '#fff', fontSize: 28, fontWeight: '300', letterSpacing: 1 },
   track: { height: 4, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 2 },
   fill: { height: '100%', borderRadius: 2 },
 
-  sectionTitle: { color: 'rgba(255,255,255,0.3)', fontSize: 12, letterSpacing: 2, fontWeight: '700', marginLeft: 5 },
+  sectionTitle: { color: 'rgba(255,255,255,0.3)', fontSize: 12, letterSpacing: 2, fontWeight: '700', marginLeft: 5, marginBottom: 15 },
 
   // TASKS
   taskCard: { backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 16, marginBottom: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderLeftWidth: 4 },
@@ -611,4 +862,42 @@ const styles = StyleSheet.create({
   libHeader: { padding: 20, borderBottomWidth: 1, borderBottomColor: '#444' },
   libTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold', letterSpacing: 1 },
   libItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#333' },
+
+  // ACHIEVEMENT NOTIFICATION
+  achievementNotif: { position: 'absolute', top: 100, left: 20, right: 20, zIndex: 1000 },
+  achievementNotifBg: { flexDirection: 'row', padding: 20, borderRadius: 16, borderWidth: 2, borderColor: '#d4af37', alignItems: 'center' },
+  achievementNotifTitle: { color: '#d4af37', fontSize: 12, fontWeight: 'bold', letterSpacing: 1 },
+  achievementNotifDesc: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginTop: 2 },
+
+  // MODALS
+  modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { width: '90%', maxHeight: '80%', backgroundColor: '#1a1a1a', borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#333' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingBottom: 15, borderBottomWidth: 1, borderBottomColor: '#333' },
+  modalTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', letterSpacing: 2 },
+
+  achievementItem: { flexDirection: 'row', alignItems: 'center', padding: 15, marginBottom: 10, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 12, opacity: 0.4 },
+  achievementTitle: { color: '#888', fontSize: 14, fontWeight: 'bold' },
+  achievementDesc: { color: '#666', fontSize: 12, marginTop: 2 },
+
+  rewardItem: { flexDirection: 'row', alignItems: 'center', padding: 15, marginBottom: 10, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 12 },
+  rewardTitle: { color: '#fff', fontSize: 14, fontWeight: 'bold' },
+  rewardCost: { color: '#ff9933', fontSize: 12, marginTop: 2 },
+  buyBtn: { backgroundColor: '#4facfe', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 8 },
+  buyText: { color: '#000', fontWeight: 'bold', fontSize: 12 },
+  addRewardBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 20, marginTop: 10, borderWidth: 2, borderColor: '#4facfe', borderRadius: 12, borderStyle: 'dashed' },
+  addRewardText: { color: '#4facfe', fontSize: 14, fontWeight: 'bold', marginLeft: 10 },
+
+  modalInput: { backgroundColor: 'rgba(255,255,255,0.05)', color: '#fff', padding: 15, borderRadius: 12, marginBottom: 15, borderWidth: 1, borderColor: '#333' },
+  modalBtn: { flex: 1, padding: 15, borderRadius: 12, alignItems: 'center' },
+  modalBtnText: { color: '#fff', fontWeight: 'bold' },
+
+  bossModalName: { color: '#ff5e62', fontSize: 24, fontWeight: 'bold', marginTop: 15, letterSpacing: 2 },
+  bossModalDesc: { color: '#aaa', fontSize: 14, marginTop: 5 },
+  bossModalHpBar: { width: '100%', height: 12, backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 6, marginTop: 20 },
+  bossModalHpFill: { height: '100%', backgroundColor: '#ff5e62', borderRadius: 6 },
+  bossModalHpText: { color: '#fff', fontSize: 16, marginTop: 10, fontWeight: 'bold' },
+  bossModalInfo: { color: '#888', fontSize: 12, marginTop: 20, textAlign: 'center' },
+  bossDefeated: { marginTop: 30, alignItems: 'center' },
+  bossDefeatedText: { color: '#00f260', fontSize: 20, fontWeight: 'bold', letterSpacing: 2 },
+  bossLootText: { color: '#ffde59', fontSize: 14, marginTop: 5 }
 });
