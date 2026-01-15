@@ -37,17 +37,30 @@ type Task = {
 };
 
 type PresetQuest = {
+  id: string;
   title: string;
   xp: number;
   diff: Difficulty;
+  cooldownMin: number; // Minutes between completions
+  dailyCap: number;    // Max per day
+};
+
+type QuestLog = {
+  [questId: string]: {
+    lastCompleted: number; // timestamp
+    countToday: number;
+    lastDate: string; // "YYYY-MM-DD"
+  }
 };
 
 const STORAGE_KEYS = {
   USER: '@mythic_user_name',
   KARMA: '@mythic_karma',
-  LEVEL: '@mythic_level',
   PUNA: '@mythic_puna',
   TASKS: '@mythic_tasks',
+  STREAK: '@mythic_streak',
+  LAST_DATE: '@mythic_last_date',
+  QUEST_LOG: '@mythic_quest_log'
 };
 
 const CATEGORIES = [
@@ -58,22 +71,22 @@ const CATEGORIES = [
 
 const QUEST_DB: Record<TaskType, PresetQuest[]> = {
   kriya: [
-    { title: "Deep Work (1h)", xp: 50, diff: 'tivra' },
-    { title: "Clean Workspace", xp: 20, diff: 'laghu' },
-    { title: "Pay Bills / Admin", xp: 30, diff: 'madhya' },
-    { title: "Review Goals", xp: 20, diff: 'laghu' }
+    { id: 'kriya_deep_work', title: "Deep Work (1h)", xp: 50, diff: 'tivra', cooldownMin: 120, dailyCap: 3 },
+    { id: 'kriya_clean', title: "Clean Workspace", xp: 20, diff: 'laghu', cooldownMin: 240, dailyCap: 2 },
+    { id: 'kriya_admin', title: "Pay Bills / Admin", xp: 30, diff: 'madhya', cooldownMin: 360, dailyCap: 1 },
+    { id: 'kriya_goals', title: "Review Goals", xp: 20, diff: 'laghu', cooldownMin: 720, dailyCap: 1 }
   ],
   gyana: [
-    { title: "Read Book (30m)", xp: 30, diff: 'madhya' },
-    { title: "Learn New Skill (1h)", xp: 50, diff: 'tivra' },
-    { title: "Journaling", xp: 20, diff: 'laghu' },
-    { title: "Meditation (20m)", xp: 30, diff: 'madhya' }
+    { id: 'gyana_read', title: "Read Book (30m)", xp: 30, diff: 'madhya', cooldownMin: 90, dailyCap: 4 },
+    { id: 'gyana_learn', title: "Learn New Skill (1h)", xp: 50, diff: 'tivra', cooldownMin: 180, dailyCap: 2 },
+    { id: 'gyana_journal', title: "Journaling", xp: 20, diff: 'laghu', cooldownMin: 360, dailyCap: 2 },
+    { id: 'gyana_meditate', title: "Meditation (20m)", xp: 30, diff: 'madhya', cooldownMin: 240, dailyCap: 3 }
   ],
   ojas: [
-    { title: "Workout (45m)", xp: 50, diff: 'tivra' },
-    { title: "Drink Water (2L)", xp: 10, diff: 'laghu' },
-    { title: "Sleep 8 Hours", xp: 40, diff: 'tivra' },
-    { title: "Nature Walk (20m)", xp: 20, diff: 'laghu' }
+    { id: 'ojas_workout', title: "Workout (45m)", xp: 50, diff: 'tivra', cooldownMin: 360, dailyCap: 2 },
+    { id: 'ojas_water', title: "Drink Water (2L)", xp: 10, diff: 'laghu', cooldownMin: 60, dailyCap: 8 },
+    { id: 'ojas_sleep', title: "Sleep 8 Hours", xp: 40, diff: 'tivra', cooldownMin: 1440, dailyCap: 1 },
+    { id: 'ojas_walk', title: "Nature Walk (20m)", xp: 20, diff: 'laghu', cooldownMin: 180, dailyCap: 3 }
   ]
 };
 
@@ -151,15 +164,26 @@ export default function HomeScreen() {
   // STATE
   const [username, setUsername] = useState<string | null>(null);
   const [tempName, setTempName] = useState('');
-  const [karma, setKarma] = useState(0);
-  const [level, setLevel] = useState(1);
-  const [puna, setPuna] = useState(0);
-  const [tasks, setTasks] = useState<Task[]>([]);
 
+  // Game Stats
+  const [karma, setKarma] = useState(0);
+  const [puna, setPuna] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [lastDate, setLastDate] = useState<string | null>(null);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [questLog, setQuestLog] = useState<QuestLog>({});
+
+  // UI State
   const [inputVal, setInputVal] = useState('');
   const [selectedType, setSelectedType] = useState<TaskType>('kriya');
   const [showWisdom, setShowWisdom] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
+
+  // COMPUTED LEVEL
+  const level = Math.floor(Math.sqrt(karma / 100)) + 1;
+  const nextLevelKarma = 100 * Math.pow(level, 2);
+  const currentLevelBaseKarma = 100 * Math.pow(level - 1, 2);
+  const progressPercent = Math.min(Math.max((karma - currentLevelBaseKarma) / (nextLevelKarma - currentLevelBaseKarma), 0), 1) * 100;
 
   // SCROLL ANIMATION
   const scrollY = useSharedValue(0);
@@ -174,18 +198,22 @@ export default function HomeScreen() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [u, k, l, p, t] = await Promise.all([
+        const [u, k, p, t, s, d, ql] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEYS.USER),
           AsyncStorage.getItem(STORAGE_KEYS.KARMA),
-          AsyncStorage.getItem(STORAGE_KEYS.LEVEL),
           AsyncStorage.getItem(STORAGE_KEYS.PUNA),
-          AsyncStorage.getItem(STORAGE_KEYS.TASKS)
+          AsyncStorage.getItem(STORAGE_KEYS.TASKS),
+          AsyncStorage.getItem(STORAGE_KEYS.STREAK),
+          AsyncStorage.getItem(STORAGE_KEYS.LAST_DATE),
+          AsyncStorage.getItem(STORAGE_KEYS.QUEST_LOG)
         ]);
         if (u) setUsername(u);
         if (k) setKarma(JSON.parse(k));
-        if (l) setLevel(JSON.parse(l));
         if (p) setPuna(JSON.parse(p));
         if (t) setTasks(JSON.parse(t));
+        if (s) setStreak(JSON.parse(s));
+        if (d) setLastDate(d);
+        if (ql) setQuestLog(JSON.parse(ql));
       } catch (e) { }
     };
     load();
@@ -196,12 +224,14 @@ export default function HomeScreen() {
     if (!username) return;
     const save = async () => {
       await AsyncStorage.setItem(STORAGE_KEYS.KARMA, JSON.stringify(karma));
-      await AsyncStorage.setItem(STORAGE_KEYS.LEVEL, JSON.stringify(level));
       await AsyncStorage.setItem(STORAGE_KEYS.PUNA, JSON.stringify(puna));
       await AsyncStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+      await AsyncStorage.setItem(STORAGE_KEYS.STREAK, JSON.stringify(streak));
+      await AsyncStorage.setItem(STORAGE_KEYS.QUEST_LOG, JSON.stringify(questLog));
+      if (lastDate) await AsyncStorage.setItem(STORAGE_KEYS.LAST_DATE, lastDate);
     };
     save();
-  }, [karma, level, puna, tasks]);
+  }, [karma, puna, tasks, streak, lastDate, questLog]);
 
   // LOGIC
   const handleLogin = async () => {
@@ -209,6 +239,22 @@ export default function HomeScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     await AsyncStorage.setItem(STORAGE_KEYS.USER, tempName);
     setUsername(tempName);
+  };
+
+  const updateStreak = () => {
+    const today = new Date().toISOString().split('T')[0];
+    if (lastDate === today) return;
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yStr = yesterday.toISOString().split('T')[0];
+
+    if (lastDate === yStr) {
+      setStreak(s => s + 1);
+    } else {
+      setStreak(1);
+    }
+    setLastDate(today);
   };
 
   const addCustomTask = () => {
@@ -219,22 +265,79 @@ export default function HomeScreen() {
     setInputVal('');
   };
 
-  const addPresetQuest = (q: PresetQuest) => {
+  const canAddQuest = (quest: PresetQuest): { allowed: boolean; reason?: string; timeLeft?: number } => {
+    const today = new Date().toISOString().split('T')[0];
+    const now = Date.now();
+    const log = questLog[quest.id];
+
+    if (!log) return { allowed: true };
+
+    // Reset daily count if new day
+    if (log.lastDate !== today) {
+      return { allowed: true };
+    }
+
+    // Check daily cap
+    if (log.countToday >= quest.dailyCap) {
+      return { allowed: false, reason: `Daily limit (${quest.dailyCap}) reached` };
+    }
+
+    // Check cooldown
+    const timeSinceLastMs = now - log.lastCompleted;
+    const cooldownMs = quest.cooldownMin * 60 * 1000;
+
+    if (timeSinceLastMs < cooldownMs) {
+      const timeLeftMs = cooldownMs - timeSinceLastMs;
+      const minutesLeft = Math.ceil(timeLeftMs / 60000);
+      return { allowed: false, reason: `Cooldown`, timeLeft: minutesLeft };
+    }
+
+    return { allowed: true };
+  };
+
+  const addPresetQuest = (quest: PresetQuest) => {
+    const check = canAddQuest(quest);
+
+    if (!check.allowed) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const t: Task = { id: Date.now().toString(), title: q.title, xp: q.xp, type: selectedType, difficulty: q.diff, isPreset: true };
+    const t: Task = { id: Date.now().toString(), title: quest.title, xp: quest.xp, type: selectedType, difficulty: quest.diff, isPreset: true };
     setTasks([t, ...tasks]);
+
+    // Update quest log
+    const today = new Date().toISOString().split('T')[0];
+    const now = Date.now();
+    const currentLog = questLog[quest.id];
+
+    setQuestLog({
+      ...questLog,
+      [quest.id]: {
+        lastCompleted: now,
+        countToday: (currentLog?.lastDate === today ? currentLog.countToday : 0) + 1,
+        lastDate: today
+      }
+    });
+
     setShowLibrary(false);
   };
 
   const completeTask = (id: string, xp: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    const nextKarma = karma + xp;
-    if (nextKarma > level * 100) {
-      setLevel(l => l + 1);
+
+    const newKarma = karma + xp;
+    const oldLevel = Math.floor(Math.sqrt(karma / 100)) + 1;
+    const newLevel = Math.floor(Math.sqrt(newKarma / 100)) + 1;
+
+    if (newLevel > oldLevel) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
-    setKarma(nextKarma);
+    setKarma(newKarma);
     setPuna(p => p + (xp / 10));
+
+    updateStreak();
     setTasks(prev => prev.filter(t => t.id !== id));
   };
 
@@ -274,7 +377,6 @@ export default function HomeScreen() {
       <Starfield />
 
       <SafeAreaView style={{ flex: 1 }}>
-        {/* LIST */}
         <Animated.FlatList
           data={tasks}
           keyExtractor={item => item.id}
@@ -288,17 +390,23 @@ export default function HomeScreen() {
                   <Text style={styles.divineTitle}>LILA</Text>
                   <Text style={styles.divineSub}>PRANAM, {username.toUpperCase()}</Text>
                 </View>
-                <TouchableOpacity onPress={() => setShowWisdom(true)} style={styles.wisdomIcon}>
-                  <MaterialCommunityIcons name="script-text-outline" size={24} color="#ffde59" />
-                </TouchableOpacity>
+
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <View style={styles.streakBadge}>
+                    <MaterialCommunityIcons name="fire" size={20} color="#ff5e62" />
+                    <Text style={styles.streakText}>{streak}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setShowWisdom(true)} style={styles.wisdomIcon}>
+                    <MaterialCommunityIcons name="script-text-outline" size={24} color="#ffde59" />
+                  </TouchableOpacity>
+                </View>
               </View>
 
-              {/* HERO STATS */}
               <View style={styles.heroCard}>
                 <View style={styles.statRow}>
                   <View>
                     <Text style={styles.statLabel}>KARMA</Text>
-                    <Text style={styles.statVal}>{Math.floor(karma)} <Text style={{ fontSize: 14, color: '#888' }}>/ {level * 100}</Text></Text>
+                    <Text style={styles.statVal}>{Math.floor(karma)} <Text style={{ fontSize: 14, color: '#888' }}>/ {Math.floor(nextLevelKarma)}</Text></Text>
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
                     <Text style={styles.statLabel}>LEVEL</Text>
@@ -306,7 +414,7 @@ export default function HomeScreen() {
                   </View>
                 </View>
                 <View style={styles.track}>
-                  <LinearGradient colors={['#ff9933', '#ff5e62']} style={[styles.fill, { width: `${Math.min((karma / (level * 100)) * 100, 100)}%` }]} />
+                  <LinearGradient colors={['#ff9933', '#ff5e62']} style={[styles.fill, { width: `${progressPercent}%` }]} />
                 </View>
               </View>
 
@@ -401,18 +509,41 @@ export default function HomeScreen() {
                 </View>
                 <FlatList
                   data={QUEST_DB[selectedType]}
-                  keyExtractor={i => i.title}
-                  renderItem={({ item }) => (
-                    <TouchableOpacity style={styles.libItem} onPress={() => addPresetQuest(item)}>
-                      <View>
-                        <Text style={{ color: '#fff', fontSize: 16 }}>{item.title}</Text>
-                        <Text style={{ color: '#666', fontSize: 10, fontWeight: 'bold', marginTop: 2 }}>{item.diff.toUpperCase()}</Text>
-                      </View>
-                      <View style={{ backgroundColor: '#333', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
-                        <Text style={{ color: '#ffde59', fontWeight: 'bold' }}>+{item.xp}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  )}
+                  keyExtractor={i => i.id}
+                  renderItem={({ item }) => {
+                    const check = canAddQuest(item);
+                    const today = new Date().toISOString().split('T')[0];
+                    const log = questLog[item.id];
+                    const count = (log?.lastDate === today ? log.countToday : 0);
+
+                    return (
+                      <TouchableOpacity
+                        style={[styles.libItem, !check.allowed && { opacity: 0.4 }]}
+                        onPress={() => addPresetQuest(item)}
+                        disabled={!check.allowed}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <Text style={{ color: '#fff', fontSize: 16 }}>{item.title}</Text>
+                            {!check.allowed && <Ionicons name="lock-closed" size={14} color="#ff5e62" />}
+                          </View>
+                          <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+                            <Text style={{ color: '#666', fontSize: 10, fontWeight: 'bold' }}>{item.diff.toUpperCase()}</Text>
+                            <Text style={{ color: '#666', fontSize: 10 }}>•</Text>
+                            <Text style={{ color: '#888', fontSize: 10 }}>{count}/{item.dailyCap} today</Text>
+                          </View>
+                          {!check.allowed && check.reason && (
+                            <Text style={{ color: '#ff5e62', fontSize: 10, marginTop: 2 }}>
+                              {check.reason}{check.timeLeft ? ` (${check.timeLeft}m)` : ''}
+                            </Text>
+                          )}
+                        </View>
+                        <View style={{ backgroundColor: '#333', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
+                          <Text style={{ color: '#ffde59', fontWeight: 'bold' }}>+{item.xp}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  }}
                 />
               </LinearGradient>
             </Animated.View>
@@ -441,6 +572,8 @@ const styles = StyleSheet.create({
   divineTitle: { fontSize: 42, color: '#fff', letterSpacing: 8, fontWeight: '600', fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif' },
   divineSub: { fontSize: 10, color: 'rgba(255,255,255,0.5)', letterSpacing: 3, marginTop: 5, fontWeight: 'bold' },
   wisdomIcon: { padding: 10, backgroundColor: 'rgba(255,222,89,0.1)', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,222,89,0.3)' },
+  streakBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 8, paddingHorizontal: 12, backgroundColor: 'rgba(255, 94, 98, 0.1)', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255, 94, 98, 0.2)' },
+  streakText: { color: '#ff5e62', fontWeight: 'bold', fontSize: 12 },
 
   heroCard: { backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 24, padding: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', marginBottom: 30 },
   statRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
@@ -474,7 +607,7 @@ const styles = StyleSheet.create({
   wisdomLabel: { fontSize: 14, fontWeight: 'bold', letterSpacing: 1, marginBottom: 4 },
   wisdomDesc: { color: '#aaa', fontSize: 12, lineHeight: 16 },
 
-  librarySheet: { height: '50%', width: '100%', borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden' },
+  librarySheet: { height: '60%', width: '100%', borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden' },
   libHeader: { padding: 20, borderBottomWidth: 1, borderBottomColor: '#444' },
   libTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold', letterSpacing: 1 },
   libItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#333' },
