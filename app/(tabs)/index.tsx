@@ -527,15 +527,15 @@ export default function HomeScreen() {
       <AkashBackground />
       <Starfield />
 
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView style={{ flex: 1, paddingTop: 10 }}>
         <Animated.FlatList
           data={tasks}
           keyExtractor={item => item.id}
           onScroll={scrollHandler}
           scrollEventThrottle={16}
-          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 150, paddingTop: 10 }}
+          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40, paddingTop: 5 }}
           ListHeaderComponent={
-            <Animated.View style={[styles.headerContainer, headerStyle]}>
+            <Animated.View style={[styles.headerContainer, headerStyle, { marginBottom: 10 }]}>
               <View style={styles.headerTop}>
                 <View>
                   <Text style={styles.divineTitle}>LILA</Text>
@@ -807,36 +807,75 @@ const styles = StyleSheet.create({
   enterText: { color: '#000', fontWeight: 'bold', letterSpacing: 2 },
 
   // HEADER
-  headerContainer: { marginBottom: 20 },
+  headerContainer: { marginBottom: 25, paddingHorizontal: 4 },
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15, alignItems: 'flex-start' },
-  divineTitle: { fontSize: 42, color: '#fff', letterSpacing: 8, fontWeight: '600', fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif' },
-  divineSub: { fontSize: 10, color: 'rgba(255,255,255,0.5)', letterSpacing: 3, marginTop: 5, fontWeight: 'bold' },
-  wisdomIcon: { padding: 8, backgroundColor: 'rgba(255,222,89,0.1)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,222,89,0.3)' },
-  iconBtn: { padding: 8, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', flexDirection: 'row', alignItems: 'center', gap: 4 },
+  divineTitle: { fontSize: 48, color: '#FFD700', letterSpacing: 10, fontWeight: '600', fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif', textShadowColor: 'rgba(255,215,0,0.5)', textShadowOffset: { width: 0, height: 3 }, textShadowRadius: 6 },
+  divineSub: { fontSize: 11, color: 'rgba(255,255,255,0.6)', letterSpacing: 4, marginTop: 6, fontWeight: 'bold' },
+  wisdomIcon: { padding: 10, backgroundColor: 'rgba(139,69,19,0.6)', borderRadius: 20, borderWidth: 2, borderColor: 'rgba(218,165,32,0.5)', shadowColor: '#DAA520', shadowOpacity: 0.4, shadowRadius: 6, elevation: 4 },
+  iconBtn: { padding: 10, backgroundColor: 'rgba(139,69,19,0.6)', borderRadius: 20, borderWidth: 2, borderColor: 'rgba(218,165,32,0.5)', flexDirection: 'row', alignItems: 'center', gap: 4, shadowColor: '#DAA520', shadowOpacity: 0.4, shadowRadius: 6, elevation: 4 },
   punaText: { color: '#ff9933', fontSize: 10, fontWeight: 'bold' },
-  streakBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: 'rgba(255, 94, 98, 0.1)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255, 94, 98, 0.2)' },
+  streakBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: 12, backgroundColor: 'rgba(139,69,19,0.6)', borderRadius: 20, borderWidth: 2, borderColor: 'rgba(255,69,0,0.5)', shadowColor: '#FF4500', shadowOpacity: 0.5, shadowRadius: 8, elevation: 4 },
   streakText: { color: '#ff5e62', fontWeight: 'bold', fontSize: 11 },
 
   // BOSS CARD
-  bossCard: { flexDirection: 'row', backgroundColor: 'rgba(255,94,98,0.1)', borderRadius: 16, padding: 15, marginBottom: 15, borderWidth: 1, borderColor: 'rgba(255,94,98,0.3)' },
-  bossName: { color: '#ff5e62', fontSize: 16, fontWeight: 'bold', letterSpacing: 1 },
-  bossDesc: { color: '#aaa', fontSize: 11, marginTop: 2 },
-  bossHpBar: { height: 6, backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 3, marginTop: 8 },
-  bossHpFill: { height: '100%', backgroundColor: '#ff5e62', borderRadius: 3 },
+  bossCard: {
+    flexDirection: 'row',
+    backgroundColor: '#8B1538',
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 20,
+    marginHorizontal: 4,
+    borderWidth: 3,
+    borderColor: '#C41E3A',
+    shadowColor: '#ff0040',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+    elevation: 12
+  },
+  bossName: { color: '#FFD700', fontSize: 18, fontWeight: 'bold', letterSpacing: 1.5, textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4 },
+  bossDesc: { color: '#FFB6C1', fontSize: 12, marginTop: 3, opacity: 0.9 },
+  bossHpBar: { height: 10, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 12, marginTop: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  bossHpFill: { height: '100%', backgroundColor: '#FF4500', borderRadius: 10, shadowColor: '#FF4500', shadowOpacity: 0.8, shadowRadius: 8 },
   bossHpText: { color: '#888', fontSize: 10, marginTop: 4 },
 
   // HERO CARD
-  heroCard: { backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 24, padding: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', marginBottom: 20 },
+  heroCard: {
+    backgroundColor: '#1a2332',
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 2,
+    borderColor: '#2a3f5f',
+    marginBottom: 20,
+    marginHorizontal: 4,
+    shadowColor: '#4facfe',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8
+  },
   statRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
-  statLabel: { color: 'rgba(255,255,255,0.4)', fontSize: 11, letterSpacing: 2, fontWeight: '700', marginBottom: 5 },
-  statVal: { color: '#fff', fontSize: 28, fontWeight: '300', letterSpacing: 1 },
-  track: { height: 4, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 2 },
-  fill: { height: '100%', borderRadius: 2 },
+  statLabel: { color: '#FFD700', fontSize: 12, letterSpacing: 2.5, fontWeight: '700', marginBottom: 6 },
+  statVal: { color: '#fff', fontSize: 32, fontWeight: '300', letterSpacing: 1, textShadowColor: 'rgba(255,215,0,0.3)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4 },
+  track: { height: 8, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  fill: { height: '100%', borderRadius: 10, shadowColor: '#4facfe', shadowOpacity: 0.8, shadowRadius: 8 },
 
   sectionTitle: { color: 'rgba(255,255,255,0.3)', fontSize: 12, letterSpacing: 2, fontWeight: '700', marginLeft: 5, marginBottom: 15 },
 
   // TASKS
-  taskCard: { backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 16, marginBottom: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderLeftWidth: 4 },
+  taskCard: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 18,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderLeftWidth: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3
+  },
   taskContent: { padding: 20, flexDirection: 'row', alignItems: 'center' },
   checkbox: { width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, marginRight: 15, justifyContent: 'center', alignItems: 'center' },
   taskTitle: { color: '#eee', fontSize: 16, letterSpacing: 0.5 },
